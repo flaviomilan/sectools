@@ -1,0 +1,231 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*/v*"
+
+permissions:
+  contents: write
+
+jobs:
+  meta:
+    name: Parse release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tool: ${{ steps.parse.outputs.tool }}
+      version: ${{ steps.parse.outputs.version }}
+      lang: ${{ steps.parse.outputs.lang }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse tag
+        id: parse
+        run: |
+          TAG="${{ github.ref_name }}"
+          TOOL="${TAG%%/v*}"
+          VERSION="${TAG##*/}"
+
+          echo "tool=$TOOL" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # Detect language by checking where the tool lives
+          if [ -d "tools/$TOOL" ]; then
+            echo "lang=go" >> "$GITHUB_OUTPUT"
+          elif [ -d "libs/$TOOL" ]; then
+            echo "lang=rust" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Unknown tool '$TOOL' — no tools/$TOOL or libs/$TOOL found"
+            exit 1
+          fi
+
+          echo "### Release Info" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Tool:** $TOOL" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Version:** $VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+  build-go:
+    name: Go — ${{ needs.meta.outputs.tool }} (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: meta
+    if: needs.meta.outputs.lang == 'go'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+        exclude:
+          - goos: windows
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          TOOL="${{ needs.meta.outputs.tool }}"
+          VERSION="${{ needs.meta.outputs.version }}"
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+
+          mkdir -p dist
+          go build \
+            -ldflags="-s -w -X main.version=${VERSION}" \
+            -o "dist/${TOOL}-${GOOS}-${GOARCH}${EXT}" \
+            "./tools/${TOOL}" || echo "::warning::Skipped ${TOOL} for ${GOOS}/${GOARCH} (CGO required)"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.meta.outputs.tool }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+
+  build-rust:
+    name: Rust — ${{ needs.meta.outputs.tool }} (${{ matrix.target }})
+    needs: meta
+    if: needs.meta.outputs.lang == 'rust'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            suffix: linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            suffix: linux-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            suffix: darwin-amd64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            suffix: darwin-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          TOOL="${{ needs.meta.outputs.tool }}"
+          cargo build --release --target ${{ matrix.target }} -p "$TOOL"
+
+      - name: Collect binary
+        run: |
+          TOOL="${{ needs.meta.outputs.tool }}"
+          mkdir -p dist
+          SRC="target/${{ matrix.target }}/release/${TOOL}"
+          if [ -f "$SRC" ]; then
+            cp "$SRC" "dist/${TOOL}-${{ matrix.suffix }}"
+          elif [ -f "${SRC}.exe" ]; then
+            cp "${SRC}.exe" "dist/${TOOL}-${{ matrix.suffix }}.exe"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.meta.outputs.tool }}-${{ matrix.suffix }}
+          path: dist/
+
+  release:
+    name: "Release ${{ needs.meta.outputs.tool }} ${{ needs.meta.outputs.version }}"
+    needs: [meta, build-go, build-rust]
+    if: |
+      always() &&
+      needs.meta.result == 'success' &&
+      (needs.build-go.result == 'success' || needs.build-go.result == 'skipped') &&
+      (needs.build-rust.result == 'success' || needs.build-rust.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: "${{ needs.meta.outputs.tool }}-*"
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > checksums-sha256.txt 2>/dev/null || echo "No binaries"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          TOOL="${{ needs.meta.outputs.tool }}"
+          # Find previous tag for this specific tool
+          PREV_TAG=$(git tag -l "${TOOL}/v*" --sort=-v:refname | head -2 | tail -1)
+          if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "${{ github.ref_name }}" ]; then
+            echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
+            echo "Initial release of **${TOOL}**" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          else
+            echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
+            git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" -- "tools/${TOOL}" "libs/${TOOL}" "libs/netutil/" >> "$GITHUB_OUTPUT"
+            echo "" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect install command
+        id: install
+        run: |
+          TOOL="${{ needs.meta.outputs.tool }}"
+          VERSION="${{ needs.meta.outputs.version }}"
+          LANG="${{ needs.meta.outputs.lang }}"
+
+          if [ "$LANG" = "go" ]; then
+            echo "cmd=go install github.com/flaviomilan/sectools/tools/${TOOL}@${VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "cmd=cargo install --git https://github.com/flaviomilan/sectools --tag ${{ github.ref_name }} -p ${TOOL}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "${{ needs.meta.outputs.tool }} ${{ needs.meta.outputs.version }}"
+          tag_name: ${{ github.ref_name }}
+          body: |
+            ## ${{ needs.meta.outputs.tool }} ${{ needs.meta.outputs.version }}
+
+            ${{ steps.changelog.outputs.changelog }}
+
+            ### Install
+
+            **From source:**
+            ```bash
+            ${{ steps.install.outputs.cmd }}
+            ```
+
+            **Pre-built binary:**
+            ```bash
+            # Linux amd64
+            curl -Lo ${{ needs.meta.outputs.tool }} \
+              https://github.com/flaviomilan/sectools/releases/download/${{ github.ref_name }}/${{ needs.meta.outputs.tool }}-linux-amd64
+            chmod +x ${{ needs.meta.outputs.tool }}
+            sudo mv ${{ needs.meta.outputs.tool }} /usr/local/bin/
+            ```
+
+            ### Checksums (SHA-256)
+            See `checksums-sha256.txt` in the release assets.
+          files: artifacts/*
