@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# pre-push — full validation: tests + build (mirrors CI pipeline)
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+info()  { printf "${CYAN}[hook]${NC} %s\n" "$*"; }
+pass()  { printf "${GREEN}[hook] ✓${NC} %s\n" "$*"; }
+fail()  { printf "${RED}[hook] ✗${NC} %s\n" "$*"; }
+
+ERRORS=0
+
+# ─── Go ──────────────────────────────────────────────────────────
+info "Go: running tests..."
+if ! go test -race ./... 2>&1; then
+  fail "Go tests"
+  ERRORS=$((ERRORS + 1))
+else
+  pass "Go tests"
+fi
+
+info "Go: building tools..."
+if ! go build ./tools/... 2>&1; then
+  fail "Go build"
+  ERRORS=$((ERRORS + 1))
+else
+  pass "Go build"
+fi
+
+# ─── Rust ────────────────────────────────────────────────────────
+info "Rust: running tests..."
+if ! cargo test --all 2>&1; then
+  fail "Rust tests"
+  ERRORS=$((ERRORS + 1))
+else
+  pass "Rust tests"
+fi
+
+info "Rust: building..."
+if ! cargo build --release 2>&1; then
+  fail "Rust build"
+  ERRORS=$((ERRORS + 1))
+else
+  pass "Rust build"
+fi
+
+# ─── Result ──────────────────────────────────────────────────────
+if [ "$ERRORS" -gt 0 ]; then
+  echo ""
+  fail "Push blocked — fix the $ERRORS error(s) above."
+  echo "  Tip: run 'make test && make build' to reproduce locally."
+  exit 1
+fi
+
+pass "All pre-push checks passed."

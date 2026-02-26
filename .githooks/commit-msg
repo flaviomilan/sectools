@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# commit-msg — validate Conventional Commits format
+set -euo pipefail
+
+MSG_FILE="$1"
+MSG=$(head -1 "$MSG_FILE")
+
+# Pattern: type(optional-scope): description
+# Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+PATTERN='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .{1,}'
+
+if ! echo "$MSG" | grep -qE "$PATTERN"; then
+  echo ""
+  echo "ERROR: Commit message does not follow Conventional Commits format."
+  echo ""
+  echo "  Expected: <type>(<scope>): <description>"
+  echo ""
+  echo "  Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+  echo ""
+  echo "  Examples:"
+  echo "    feat(banner-grabber): add JSON output"
+  echo "    fix(netutil): handle IPv6 correctly"
+  echo "    ci: add arm64 build target"
+  echo ""
+  echo "  Your message: $MSG"
+  echo ""
+  exit 1
+fi

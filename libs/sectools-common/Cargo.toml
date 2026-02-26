@@ -1,0 +1,10 @@
+[package]
+name = "sectools-common"
+description = "Shared utilities for sectools Rust tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# pre-commit — fast checks: formatting & linting (runs in <30s)
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+info()  { printf "${CYAN}[hook]${NC} %s\n" "$*"; }
+pass()  { printf "${GREEN}[hook] ✓${NC} %s\n" "$*"; }
+fail()  { printf "${RED}[hook] ✗${NC} %s\n" "$*"; }
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+HAS_GO=false
+HAS_RUST=false
+
+echo "$STAGED" | grep -qE '\.(go)$'                  && HAS_GO=true   || true
+echo "$STAGED" | grep -qE '\.(rs|toml)$'             && HAS_RUST=true || true
+echo "$STAGED" | grep -qE '(Cargo\.toml|Cargo\.lock)' && HAS_RUST=true || true
+
+ERRORS=0
+
+# ─── Go ──────────────────────────────────────────────────────────
+if $HAS_GO; then
+  info "Go: checking formatting..."
+  UNFORMATTED=$(gofmt -l . 2>/dev/null || true)
+  if [ -n "$UNFORMATTED" ]; then
+    fail "Go files need formatting:"
+    echo "$UNFORMATTED" | sed 's/^/  /'
+    ERRORS=$((ERRORS + 1))
+  else
+    pass "Go formatting"
+  fi
+
+  info "Go: running linter..."
+  if ! golangci-lint run ./... 2>&1; then
+    fail "golangci-lint"
+    ERRORS=$((ERRORS + 1))
+  else
+    pass "golangci-lint"
+  fi
+fi
+
+# ─── Rust ────────────────────────────────────────────────────────
+if $HAS_RUST; then
+  info "Rust: checking formatting..."
+  if ! cargo fmt --all -- --check 2>&1; then
+    fail "cargo fmt"
+    ERRORS=$((ERRORS + 1))
+  else
+    pass "cargo fmt"
+  fi
+
+  info "Rust: running clippy..."
+  if ! cargo clippy --all-targets --all-features -- -D warnings 2>&1; then
+    fail "cargo clippy"
+    ERRORS=$((ERRORS + 1))
+  else
+    pass "cargo clippy"
+  fi
+fi
+
+# ─── Result ──────────────────────────────────────────────────────
+if [ "$ERRORS" -gt 0 ]; then
+  echo ""
+  fail "Commit blocked — fix the $ERRORS error(s) above."
+  echo "  Tip: run 'make lint' to reproduce locally."
+  exit 1
+fi
+
+pass "All pre-commit checks passed."
