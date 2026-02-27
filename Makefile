@@ -10,11 +10,13 @@ lint-go: ## Run Go linters
 test-go: ## Run Go tests with race detector
 	go test -v -race -coverprofile=coverage-go.out ./...
 
-build-go: ## Build all Go tools
+build-go: ## Build all Go tools (version from VERSION file)
 	@for tool in tools/*/; do \
 		name=$$(basename "$$tool"); \
-		echo "=== Building $$name ==="; \
-		CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=dev" -o bin/$$name ./$$tool; \
+		ver="dev"; \
+		if [ -f "$$tool/VERSION" ]; then ver=$$(cat "$$tool/VERSION" | tr -d '\n'); fi; \
+		echo "=== Building $$name v$$ver ==="; \
+		CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=v$$ver" -o bin/$$name ./$$tool; \
 	done
 
 install-go: ## Install all Go tools locally
@@ -61,18 +63,30 @@ hooks: ## Install git hooks (.githooks → .git/hooks)
 
 # ─── Release helpers ─────────────────────────────────────────────
 
-.PHONY: release-tag
+.PHONY: release-tag versions
 
-release-tag: ## Create a per-tool release tag (usage: make release-tag TOOL=banner-grabber VERSION=v1.0.0)
+versions: ## Show current version of each tool
+	@for vf in tools/*/VERSION libs/*/VERSION; do \
+		[ -f "$$vf" ] || continue; \
+		dir=$$(dirname "$$vf"); \
+		name=$$(basename "$$dir"); \
+		ver=$$(cat "$$vf" | tr -d '\n'); \
+		printf "  %-28s %s\n" "$$name" "v$$ver"; \
+	done
+
+release-tag: ## Tag a tool for release (usage: make release-tag TOOL=banner-grabber)
 ifndef TOOL
-	$(error TOOL is required — e.g. make release-tag TOOL=banner-grabber VERSION=v1.0.0)
+	$(error TOOL is required — e.g. make release-tag TOOL=banner-grabber)
 endif
-ifndef VERSION
-	$(error VERSION is required — e.g. make release-tag TOOL=banner-grabber VERSION=v1.0.0)
-endif
-	git tag -a "$(TOOL)/$(VERSION)" -m "Release $(TOOL) $(VERSION)"
-	@echo "Tag created: $(TOOL)/$(VERSION)"
-	@echo "Push with:   git push origin $(TOOL)/$(VERSION)"
+	@VERSION_FILE=""; \
+	if [ -f "tools/$(TOOL)/VERSION" ]; then VERSION_FILE="tools/$(TOOL)/VERSION"; \
+	elif [ -f "libs/$(TOOL)/VERSION" ]; then VERSION_FILE="libs/$(TOOL)/VERSION"; \
+	else echo "ERROR: No VERSION file found for $(TOOL)"; exit 1; fi; \
+	VER=$$(cat "$$VERSION_FILE" | tr -d '\n'); \
+	echo "Creating tag $(TOOL)/v$$VER from $$VERSION_FILE"; \
+	git tag -a "$(TOOL)/v$$VER" -m "Release $(TOOL) v$$VER"; \
+	echo "Tag created: $(TOOL)/v$$VER"; \
+	echo "Push with:   git push origin $(TOOL)/v$$VER"
 
 # ─── Help ────────────────────────────────────────────────────────
 

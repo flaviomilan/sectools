@@ -43,6 +43,31 @@ jobs:
           echo "- **Tool:** $TOOL" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Version:** $VERSION" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Validate VERSION file
+        run: |
+          TOOL="${{ steps.parse.outputs.tool }}"
+          VERSION="${{ steps.parse.outputs.version }}"
+          LANG="${{ steps.parse.outputs.lang }}"
+
+          if [ "$LANG" = "go" ]; then
+            VERSION_FILE="tools/${TOOL}/VERSION"
+          else
+            VERSION_FILE="libs/${TOOL}/VERSION"
+          fi
+
+          if [ ! -f "$VERSION_FILE" ]; then
+            echo "::error::VERSION file not found at $VERSION_FILE"
+            exit 1
+          fi
+
+          FILE_VERSION="v$(tr -d '[:space:]' < "$VERSION_FILE")"
+          if [ "$FILE_VERSION" != "$VERSION" ]; then
+            echo "::error::Tag version ($VERSION) does not match $VERSION_FILE ($FILE_VERSION). Update the VERSION file first."
+            exit 1
+          fi
+
+          echo "✓ Tag $VERSION matches $VERSION_FILE"
+
   build-go:
     name: Go — ${{ needs.meta.outputs.tool }} (${{ matrix.goos }}/${{ matrix.goarch }})
     needs: meta
