@@ -6,7 +6,8 @@ on:
     paths:
       - "go.mod"
       - "go.sum"
-      - "tools/**"
+      - "tools/banner-grabber/**"
+      - "tools/port-knocking-scanner/**"
       - "libs/netutil/**"
       - ".github/workflows/go.yml"
       - ".golangci.yml"
@@ -15,7 +16,8 @@ on:
     paths:
       - "go.mod"
       - "go.sum"
-      - "tools/**"
+      - "tools/banner-grabber/**"
+      - "tools/port-knocking-scanner/**"
       - "libs/netutil/**"
       - ".github/workflows/go.yml"
       - ".golangci.yml"
@@ -81,6 +83,8 @@ jobs:
       - name: Build all commands
         run: |
           for tool in tools/*/; do
+            # Skip Rust tools (identified by Cargo.toml)
+            [ -f "${tool}/Cargo.toml" ] && continue
             TOOL_NAME=$(basename "$tool")
             echo "=== Building $TOOL_NAME ==="
             CGO_ENABLED=1 go build -ldflags="-s -w" -o "bin/${TOOL_NAME}" "./${tool}"

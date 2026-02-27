@@ -1,0 +1,17 @@
+[package]
+name = "subnet-scanner"
+description = "Fast asynchronous TCP port scanner for hosts and subnets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "subnet-scanner"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+sectools-common = { path = "../../libs/sectools-common" }
+tokio = { version = "1", features = ["full"] }

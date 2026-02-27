@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "libs/sectools-common",
+    "tools/subnet-scanner",
 ]
 
 [workspace.package]

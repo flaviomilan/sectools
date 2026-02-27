@@ -16,6 +16,7 @@ Each tool is independently versioned and released as a standalone binary.
 |------|----------|-------------|
 | **banner-grabber** | Go | TCP banner grabbing — probes open ports and captures service banners |
 | **port-knocking-scanner** | Go | Detects port-knocking sequences using raw packet capture (gopacket/pcap) |
+| **subnet-scanner** | Rust | Fast async TCP port scanner for hosts and CIDR subnets (tokio-powered) |
 | **sectools-common** | Rust | Shared library with network utilities (IP validation, port parsing, banner grab) |
 
 ## Project Structure
@@ -24,7 +25,8 @@ Each tool is independently versioned and released as a standalone binary.
 sectools/
 ├── tools/
 │   ├── banner-grabber/          # Go CLI tool
-│   └── port-knocking-scanner/   # Go CLI tool
+│   ├── port-knocking-scanner/   # Go CLI tool
+│   └── subnet-scanner/          # Rust CLI tool
 ├── libs/
 │   ├── netutil/                 # Shared Go library
 │   └── sectools-common/         # Shared Rust library
@@ -47,6 +49,12 @@ sectools/
 ```bash
 go install github.com/flaviomilan/sectools/tools/banner-grabber@latest
 go install github.com/flaviomilan/sectools/tools/port-knocking-scanner@latest
+```
+
+### From source (Rust tools)
+
+```bash
+cargo install --git https://github.com/flaviomilan/sectools -p subnet-scanner
 ```
 
 ### Pre-built binaries
@@ -88,6 +96,15 @@ banner-grabber -version
 sudo port-knocking-scanner -target 192.168.1.1 -ports 7000,8000,9000
 sudo port-knocking-scanner -target 10.0.0.1 -ports 7000,8000,9000 -timeout 10s
 port-knocking-scanner -version
+```
+
+### subnet-scanner
+
+```bash
+subnet-scanner --target 192.168.1.1 --ports 22,80,443
+subnet-scanner --target 10.0.0.0/24 --ports 22,80,443 --concurrency 1000
+subnet-scanner --target 172.16.0.0/16 --timeout 500 --output results.txt
+subnet-scanner --version
 ```
 
 ## Development
@@ -142,6 +159,7 @@ Tags follow the convention `<tool>/v<major>.<minor>.<patch>`:
 |-------------|--------|
 | `banner-grabber/v1.0.0` | Releases banner-grabber v1.0.0 |
 | `port-knocking-scanner/v0.2.0` | Releases port-knocking-scanner v0.2.0 |
+| `subnet-scanner/v0.1.0` | Releases subnet-scanner v0.1.0 |
 
 Each tool's version is fully independent — releasing one tool does **not** affect others.
 
@@ -150,7 +168,7 @@ Each tool's version is fully independent — releasing one tool does **not** aff
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
 | **Go** | Push/PR touching `tools/`, `libs/netutil/`, `go.mod` | golangci-lint → tests (race + coverage) → build |
-| **Rust** | Push/PR touching `libs/sectools-common/`, `Cargo.toml` | clippy + fmt → tests → release build |
+| **Rust** | Push/PR touching `libs/sectools-common/`, `tools/subnet-scanner/`, `Cargo.toml` | clippy + fmt → tests → release build |
 | **Security** | Push/PR to main + weekly cron | govulncheck, cargo-audit, Trivy, CodeQL |
 | **Release** | Tag `<tool>/v*` | Cross-compile, checksum, GitHub Release |
 
