@@ -13,6 +13,7 @@ test-go: ## Run Go tests with race detector
 build-go: ## Build all Go tools (version from VERSION file)
 	@for tool in tools/*/; do \
 		name=$$(basename "$$tool"); \
+		[ -f "$$tool/Cargo.toml" ] && continue; \
 		ver="dev"; \
 		if [ -f "$$tool/VERSION" ]; then ver=$$(cat "$$tool/VERSION" | tr -d '\n'); fi; \
 		echo "=== Building $$name v$$ver ==="; \

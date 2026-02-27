@@ -30,7 +30,9 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
           # Detect language by checking where the tool lives
-          if [ -d "tools/$TOOL" ]; then
+          if [ -d "tools/$TOOL" ] && [ -f "tools/$TOOL/Cargo.toml" ]; then
+            echo "lang=rust" >> "$GITHUB_OUTPUT"
+          elif [ -d "tools/$TOOL" ]; then
             echo "lang=go" >> "$GITHUB_OUTPUT"
           elif [ -d "libs/$TOOL" ]; then
             echo "lang=rust" >> "$GITHUB_OUTPUT"
@@ -50,6 +52,8 @@ jobs:
           LANG="${{ steps.parse.outputs.lang }}"
 
           if [ "$LANG" = "go" ]; then
+            VERSION_FILE="tools/${TOOL}/VERSION"
+          elif [ -f "tools/${TOOL}/VERSION" ]; then
             VERSION_FILE="tools/${TOOL}/VERSION"
           else
             VERSION_FILE="libs/${TOOL}/VERSION"
